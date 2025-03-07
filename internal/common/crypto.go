@@ -1,6 +1,7 @@
 package common
 
 import (
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -167,4 +168,37 @@ func DecryptMessage(encryptedMessage, encryptedKey []byte, privateKey *rsa.Priva
 	}
 
 	return plaintext, nil
+}
+
+// Signs a message with a private key
+func SignMessage(message []byte, privateKey *rsa.PrivateKey) ([]byte, error) {
+	// Hash the message
+	hash := sha256.Sum256(message)
+
+	// Sign the hash
+	signature, err := rsa.SignPKCS1v15(
+		rand.Reader,
+		privateKey,
+		crypto.SHA256,
+		hash[:],
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return signature, nil
+}
+
+// VerifySignature verifies a message signature
+func VerifySignature(message, signature []byte, publicKey *rsa.PublicKey) error {
+	// Hash the message
+	hash := sha256.Sum256(message)
+
+	// Verify the signature
+	return rsa.VerifyPKCS1v15(
+		publicKey,
+		crypto.SHA256,
+		hash[:],
+		signature,
+	)
 }
