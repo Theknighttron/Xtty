@@ -30,3 +30,20 @@ func EncodePrivateKeyToPEM(privateKey *rsa.PrivateKey) []byte {
 
 	return privateKeyPEM
 }
+
+// Encodes the private key to PEM(Private Enhance Mail) format
+func EncodePublicKeyToPEM(publicKey *rsa.PublicKey) ([]byte, error) {
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	publicKeyPEM := pem.EncodeToMemory(
+		&pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: publicKeyBytes,
+		},
+	)
+
+	return publicKeyPEM, nil
+}
