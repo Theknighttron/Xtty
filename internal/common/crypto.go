@@ -88,7 +88,7 @@ func ParsePublicKeyFromPEM(publicKeyPEM []byte) (*rsa.PublicKey, error) {
 	return publicKey, nil
 }
 
-// Encryp a message using hybrid encryption
+// Encrypt a message using hybrid encryption
 func EncryptMessage(message []byte, publicKey *rsa.PublicKey) ([]byte, []byte, error) {
 	// Generate a random key AES key
 	aeskey := make([]byte, 32) // 256 bits
@@ -128,4 +128,43 @@ func EncryptMessage(message []byte, publicKey *rsa.PublicKey) ([]byte, []byte, e
 	encryptedMessage := aesgcm.Seal(nonce, nonce, message, nil)
 
 	return encryptedMessage, encryptedKey, nil
+}
+
+// Decrypts a message using hybrid encryption (RSA + AES)
+func DecryptMessage(encryptedMessage, encryptedKey []byte, privateKey *rsa.PrivateKey) ([]byte, error) {
+	// Decrypt the AES key with RSA
+	aesKey, err := rsa.DecryptOAEP(
+		sha256.New(),
+		rand.Reader,
+		privateKey,
+		encryptedKey,
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decrypt the message with AES-GCM
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return nil, err
+	}
+
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonceSize := aesgcm.NonceSize()
+	if len(encryptedMessage) < nonceSize {
+		return nil, errors.New("ciphertext too short")
+	}
+
+	nonce, ciphertext := encryptedMessage[:nonceSize], encryptedMessage[nonceSize:]
+	plaintext, err := aesgcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return plaintext, nil
 }
