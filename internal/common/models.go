@@ -62,7 +62,7 @@ type FriendRequests struct {
 }
 
 // serverConfig holds configuration for the server
-type ServerConfi struct {
+type ServerConfig struct {
 	Host              string        `json:"host"`
 	Port              int           `json:"port"`
 	MessageTTL        time.Duration `json:"message_ttl"`
