@@ -53,6 +53,13 @@ type Message struct {
 	Content string `json:"content,omitempty"`
 }
 
+// Packet is the wrapper for all communications between client and server
+type Packet struct {
+	Type      string      `json:"type"`
+	Data      interface{} `json:"data"`
+	Timestamp time.Time   `json:"timestamp"`
+}
+
 // FriendRequests represents a friendship request
 type FriendRequests struct {
 	FromUser  string    `json:"from_user"`
