@@ -5,15 +5,17 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/Theknighttron/Xtty/internal/common"
 )
 
 // Config for client configurations
 type Config struct {
 	Username   string `json:"username"`
 	ServerHost string `json:"server_host"`
-	ServerPort string `json:"server_port"`
-	PrivateKey string `json:"private_key"`
-	PublicKey  string `json:"public_key"`
+	ServerPort int    `json:"server_port"`
+	PrivateKey []byte `json:"private_key"`
+	PublicKey  []byte `json:"public_key"`
 }
 
 // Load the Config from the configurations file
@@ -60,4 +62,41 @@ func saveConfig(config *Config, configPath string) error {
 
 	// Write config file
 	return os.WriteFile(configPath, data, 0600)
+}
+
+// Create a new configurations with a new key pairs
+func CreateNewConfig(username, serverHost string, serverPort int) (*Config, error) {
+	// Generate new keypair
+	privateKey, publicKey, err := common.GenerateKeyPair(2048)
+	if err != nil {
+		return nil, err
+	}
+
+	// Encode keys to PEM
+	privateKeyPEM := common.EncodePrivateKeyToPEM(privateKey)
+	publicKeyPEM, err := common.EncodePublicKeyToPEM(publicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create config
+	config := &Config{
+		Username:   username,
+		ServerHost: serverHost,
+		ServerPort: serverPort,
+		PrivateKey: privateKeyPEM,
+		PublicKey:  publicKeyPEM,
+	}
+
+	return config, nil
+}
+
+// Return the default path for the config file
+func GetDefaultConfigPath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
+
+	return filepath.Join(homeDir, ".xtty", "config.json")
 }
