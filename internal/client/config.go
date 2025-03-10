@@ -43,3 +43,21 @@ func LoadConfig(configPath string) (*Config, error) {
 
 	return &config, nil
 }
+
+// Save the configuration to the config file
+func saveConfig(config *Config, configPath string) error {
+	// Create config directory if it doesnt exist
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		return err
+	}
+
+	// Marshall config to JSON
+	data, err := json.MarshalIndent(config, "", " ")
+	if err != nil {
+		return err
+	}
+
+	// Write config file
+	return os.WriteFile(configPath, data, 0600)
+}
