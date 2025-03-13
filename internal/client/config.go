@@ -47,7 +47,7 @@ func LoadConfig(configPath string) (*Config, error) {
 }
 
 // Save the configuration to the config file
-func saveConfig(config *Config, configPath string) error {
+func SaveConfig(config *Config, configPath string) error {
 	// Create config directory if it doesnt exist
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0700); err != nil {

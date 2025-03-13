@@ -2,13 +2,10 @@ package client
 
 import (
 	"fmt"
-	"log"
-	"strings"
-	"time"
-
 	"github.com/Theknighttron/Xtty/internal/common"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"time"
 )
 
 // UI represents the terminal UI
@@ -29,22 +26,25 @@ func NewUI(client *Client) *UI {
 		app:      tview.NewApplication(),
 		client:   client,
 		messages: make(map[string][]common.Message),
-		messageList: tview.NewTextView().
-			SetDynamicColors(true).
-			SetChangedFunc(func() {
-				ui.app.Draw()
-			}),
-		inputField: tview.NewInputField().
-			SetLabel("> ").
-			SetFieldWidth(0),
-		statusBar: tview.NewTextView().
-			SetDynamicColors(true).
-			SetText("[yellow]Xtty - Secure Terminal Chat[white]"),
-		friendList: tview.NewList().
-			ShowSecondaryText(false).
-			SetHighlightFullLine(true).
-			SetSelectedBackgroundColor(tcell.ColorNavy),
 	}
+	ui.messageList = tview.NewTextView().
+		SetDynamicColors(true).
+		SetChangedFunc(func() {
+			ui.app.QueueUpdateDraw(func() {})
+		})
+
+	ui.inputField = tview.NewInputField().
+		SetLabel("> ").
+		SetFieldWidth(0)
+
+	ui.statusBar = tview.NewTextView().
+		SetDynamicColors(true).
+		SetText("[yellow]Xtty - Secure Terminal Chat[white]")
+
+	ui.friendList = tview.NewList().
+		ShowSecondaryText(false).
+		SetHighlightFullLine(true).
+		SetSelectedBackgroundColor(tcell.ColorNavy)
 
 	// Configure message handler
 	client.messageHandler = ui.handleIncomingMessage
