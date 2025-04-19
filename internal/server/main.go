@@ -83,9 +83,16 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	// Decode the request body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
 	}
 
 	// Validate the username
+	if req.Username == "" {
+		http.Error(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the username is already taken
 	s.usersLock.Lock()
 	defer s.usersLock.Unlock()
 	if _, exists := s.users[req.Username]; exists {
