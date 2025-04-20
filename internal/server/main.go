@@ -12,6 +12,23 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var (
+	rooms   = make(map[string]*Room) // In-memory room storage
+	roomsMu sync.RWMutex             // Protects concurrent access to rooms
+)
+
+type Room struct {
+	Clients map[*websocket.Conn]bool
+	mu      sync.Mutex
+}
+
+// Convert http connection into websocket connection
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
 type Server struct {
 	config      common.ServerConfig
 	clients     map[*websocket.Conn]bool
@@ -28,9 +45,11 @@ func NewServer(config common.ServerConfig) *Server {
 	}
 }
 
-func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+func HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	roomCode := r.URL.Query().Get("room") // retrieve roomcode from url query string
+	if roomCode == "" {
+		http.Error(w, "Room code required", http.StatusBadRequest)
+		return
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -39,14 +58,53 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.clientsLock.Lock()
-	s.clients[conn] = true
-	s.clientsLock.Unlock()
+	// Get or Create Room
+	roomsMu.Lock()
+	room, exists := rooms[roomCode] // check if the room exists
+	// if not create the room
+	if !exists {
+		room = &Room{Clients: make(map[*websocket.Conn]bool)}
+		rooms[roomCode] = room
+	}
+	roomsMu.Unlock()
 
-	log.Println("New WebSocket connection established")
+	// Add client to room
+	room.mu.Lock()
+	room.Clients[conn] = true
+	room.mu.Unlock()
 
-	// Handle incoming messages
-	go s.handleMessages(conn)
+	log.Printf("Client joined room %s", roomCode)
+
+	// Message relay loop
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		// Broadcast to all other clients in the room
+		room.mu.Lock()
+		for client := range room.Clients {
+			if client != conn {
+				if err := client.WriteMessage(websocket.TextMessage, msg); err != nil {
+					log.Printf("Failed to relay message: %v", err)
+					delete(room.Clients, client)
+				}
+			}
+		}
+		room.mu.Unlock()
+	}
+
+	room.mu.Lock()
+	delete(room.Clients, conn)
+	// if the room is empty close the websocket connection
+	if len(room.Clients) == 0 {
+		roomsMu.Lock()
+		delete(rooms, roomCode)
+		roomsMu.Unlock()
+	}
+	room.mu.Unlock()
+	conn.Close()
 }
 
 func (s *Server) handleMessages(conn *websocket.Conn) {
