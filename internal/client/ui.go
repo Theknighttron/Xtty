@@ -2,9 +2,9 @@ package client
 
 import (
 	"fmt"
-	"github.com/Theknighttron/Xtty/internal/common"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"strings"
 	"time"
 )
 
@@ -15,20 +15,21 @@ type UI struct {
 	inputField    *tview.InputField
 	statusBar     *tview.TextView
 	friendList    *tview.List
-	client        *Client
+	user          *User
 	currentFriend string
-	messages      map[string][]common.Message
+	messages      map[string][]Message
 }
 
 // NewUI creates a new terminal UI
-func NewUI(client *Client) *UI {
+func NewUI(user *User) *UI {
 	ui := &UI{
 		app:      tview.NewApplication(),
-		client:   client,
-		messages: make(map[string][]common.Message),
+		user:     user,
+		messages: make(map[string][]Message),
 	}
 	ui.messageList = tview.NewTextView().
 		SetDynamicColors(true).
+		SetScrollable(true).
 		SetChangedFunc(func() {
 			ui.app.QueueUpdateDraw(func() {})
 		})
@@ -39,15 +40,15 @@ func NewUI(client *Client) *UI {
 
 	ui.statusBar = tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("[yellow]Xtty - Secure Terminal Chat[white]")
+		SetText(fmt.Sprintf("[yellow]Xtty - Room Code: [white]%s | [yellow]Status: [white]Waiting for peer...", user.RoomCode))
 
 	ui.friendList = tview.NewList().
 		ShowSecondaryText(false).
 		SetHighlightFullLine(true).
 		SetSelectedBackgroundColor(tcell.ColorNavy)
 
-	// Configure message handler
-	client.messageHandler = ui.handleIncomingMessage
+	// Start listening for incoming messages
+	go ui.updateMessages()
 
 	return ui
 }
@@ -65,31 +66,44 @@ func (ui *UI) setupUI() {
 				return
 			}
 
-			if ui.currentFriend == "" {
-				ui.messageList.Write([]byte("[red]Error: No friend selected[white]\n"))
-				ui.inputField.SetText("")
-				return
-			}
+			if strings.HasPrefix(text, "/") {
+				ui.handleCommand(text)
+			} else {
+				if ui.currentFriend == "" && ui.friendList.GetItemCount() > 0 {
+					// Auto-select the first friend if none is selected
+					mainText, _ := ui.friendList.GetItemText(0)
+					ui.currentFriend = mainText
+					ui.friendList.SetCurrentItem(0)
+					ui.statusBar.SetText(fmt.Sprintf("[yellow]Xtty - Chatting with %s[white]", ui.currentFriend))
+				}
 
-			// Send message
-			ui.sendMessage(text)
-			ui.inputField.SetText("")
+				if ui.currentFriend == "" {
+					ui.messageList.Write([]byte("[red]Error: No connection established yet[white]\n"))
+					ui.inputField.SetText("")
+					return
+				}
+
+				// Send message
+				if err := ui.user.SendMessage(text); err != nil {
+					ui.messageList.Write([]byte(fmt.Sprintf("[red]Error sending message: %v[white]\n", err)))
+				} else {
+					ui.displayMessage(text, true)
+				}
+				ui.inputField.SetText("")
+			}
 		}
 	})
 
-	// Setup friend list with some dummy friends
-	ui.friendList.SetBorder(true).SetTitle("Friends")
+	// Setup friend list
+	ui.friendList.SetBorder(true).SetTitle("Connections")
 
-	// Add some dummy friends for testing
-	ui.friendList.AddItem("alice", "", 0, func() {
-		ui.selectFriend("alice")
-	})
-	ui.friendList.AddItem("bob", "", 0, func() {
-		ui.selectFriend("bob")
-	})
-	ui.friendList.AddItem("charlie", "", 0, func() {
-		ui.selectFriend("charlie")
-	})
+	// Add connected peer to the list when connection is established
+	if ui.user.PeerPubKey != nil {
+		peerName := "Peer"
+		ui.friendList.AddItem(peerName, "", 0, func() {
+			ui.selectFriend(peerName)
+		})
+	}
 
 	// Create layout
 	flex := tview.NewFlex().
@@ -103,7 +117,7 @@ func (ui *UI) setupUI() {
 
 	// Set the root and focus
 	ui.app.SetRoot(flex, true)
-	ui.app.SetFocus(ui.friendList)
+	ui.app.SetFocus(ui.inputField)
 
 	// Set key bindings
 	ui.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -137,94 +151,124 @@ func (ui *UI) Run() error {
 // selectFriend selects a friend to chat with
 func (ui *UI) selectFriend(friendName string) {
 	ui.currentFriend = friendName
-	ui.statusBar.SetText(fmt.Sprintf("[yellow]Xtty - Chatting with %s[white]", friendName))
+	ui.statusBar.SetText(fmt.Sprintf("[yellow]Xtty - Connected with %s[white]", friendName))
 	ui.messageList.Clear()
 
 	// Display messages for this friend
 	if messages, ok := ui.messages[friendName]; ok {
 		for _, msg := range messages {
-			ui.displayMessage(&msg)
+			ui.displayLocalMessage(&msg)
+		}
+	} else {
+		// Also display messages from the User's message list
+		for _, msg := range ui.user.Messages {
+			ui.displayMessage(msg.Content, msg.Sent)
 		}
 	}
 
 	ui.app.SetFocus(ui.inputField)
 }
 
-// sendMessage sends a message to the current friend
-func (ui *UI) sendMessage(text string) {
-	if ui.currentFriend == "" {
-		return
+// updateMessages monitors for new messages from the User
+func (ui *UI) updateMessages() {
+	for range ui.user.Done {
+		ui.app.QueueUpdateDraw(func() {
+			// Get the latest message
+			if len(ui.user.Messages) > 0 {
+				latestMsg := ui.user.Messages[len(ui.user.Messages)-1]
+				ui.displayMessage(latestMsg.Content, latestMsg.Sent)
+
+				// Update the friend list if this is a new connection
+				if ui.friendList.GetItemCount() == 0 && ui.user.PeerPubKey != nil {
+					peerName := "Peer"
+					ui.friendList.AddItem(peerName, "", 0, func() {
+						ui.selectFriend(peerName)
+					})
+
+					// Auto-select the first connection
+					ui.selectFriend(peerName)
+				}
+			}
+		})
 	}
-
-	// Create and send message
-	if err := ui.client.SendMessage(ui.currentFriend, common.TypeText, text); err != nil {
-		ui.messageList.Write([]byte(fmt.Sprintf("[red]Error sending message: %v[white]\n", err)))
-		return
-	}
-
-	// Create local message
-	message := common.Message{
-		ID:          fmt.Sprintf("%d", time.Now().UnixNano()),
-		SenderID:    ui.client.config.Username,
-		RecipientID: ui.currentFriend,
-		Type:        common.TypeText,
-		Timestamp:   time.Now(),
-		Content:     text,
-	}
-
-	// Store and display message
-	ui.storeMessage(&message)
-	ui.displayMessage(&message)
-}
-
-// handleIncomingMessage handles incoming messages
-func (ui *UI) handleIncomingMessage(message *common.Message) {
-	ui.app.QueueUpdateDraw(func() {
-		// Store message
-		ui.storeMessage(message)
-
-		// If this message is from/to the current friend, display it
-		if ui.currentFriend == message.SenderID || ui.currentFriend == message.RecipientID {
-			ui.displayMessage(message)
-		}
-
-		// Update friend list to show unread messages
-		// This would be implemented in a real app
-	})
-}
-
-// storeMessage stores a message
-func (ui *UI) storeMessage(message *common.Message) {
-	// Determine the key to use for this message
-	key := message.SenderID
-	if message.SenderID == ui.client.config.Username {
-		key = message.RecipientID
-	}
-
-	// Ensure we have a slice for this friend
-	if _, ok := ui.messages[key]; !ok {
-		ui.messages[key] = make([]common.Message, 0)
-	}
-
-	// Store the message
-	ui.messages[key] = append(ui.messages[key], *message)
 }
 
 // displayMessage displays a message in the UI
-func (ui *UI) displayMessage(message *common.Message) {
+func (ui *UI) displayMessage(content string, sent bool) {
+	// Format message based on sender
+	var formattedMessage string
+	timestamp := time.Now().Format("15:04:05")
+
+	if sent {
+		formattedMessage = fmt.Sprintf("[blue]%s [You][white]: %s\n", timestamp, content)
+	} else {
+		formattedMessage = fmt.Sprintf("[green]%s [Peer][white]: %s\n", timestamp, content)
+	}
+
+	// Write to message list
+	ui.messageList.Write([]byte(formattedMessage))
+
+	// Store message in local format
+	msg := Message{
+		Content:   content,
+		Timestamp: time.Now(),
+		Sent:      sent,
+	}
+
+	// Store message in our local map
+	if ui.currentFriend != "" {
+		if _, ok := ui.messages[ui.currentFriend]; !ok {
+			ui.messages[ui.currentFriend] = make([]Message, 0)
+		}
+		ui.messages[ui.currentFriend] = append(ui.messages[ui.currentFriend], msg)
+	}
+}
+
+// displayLocalMessage displays a previously stored message
+func (ui *UI) displayLocalMessage(message *Message) {
 	// Format timestamp
 	timestamp := message.Timestamp.Format("15:04:05")
 
 	// Format message based on sender
 	var formattedMessage string
-	if message.SenderID == ui.client.config.Username {
+	if message.Sent {
 		formattedMessage = fmt.Sprintf("[blue]%s [You][white]: %s\n", timestamp, message.Content)
 	} else {
-		formattedMessage = fmt.Sprintf("[green]%s [%s][white]: %s\n", timestamp, message.SenderID, message.Content)
+		formattedMessage = fmt.Sprintf("[green]%s [Peer][white]: %s\n", timestamp, message.Content)
 	}
 
 	// Write to message list
 	ui.messageList.Write([]byte(formattedMessage))
+}
+
+// updateStatus updates the status bar text
+func (ui *UI) updateStatus(text string) {
+	ui.app.QueueUpdateDraw(func() {
+		ui.statusBar.SetText(text)
+	})
+}
+
+// handleCommand processes command inputs
+func (ui *UI) handleCommand(cmd string) {
+	switch {
+	case cmd == "/quit":
+		ui.user.Cleanup()
+		ui.app.Stop()
+	case cmd == "/help":
+		ui.displayMessage("Available commands: /quit, /help, /clear", true)
+	case cmd == "/clear":
+		ui.messageList.Clear()
+	case strings.HasPrefix(cmd, "/connect"):
+		parts := strings.SplitN(cmd, " ", 2)
+		if len(parts) < 2 {
+			ui.displayMessage("Usage: /connect [SERVER_URL] [ROOM_CODE]", true)
+		} else {
+			// Implementation would depend on your connection logic
+			ui.displayMessage("Connection command received (not implemented yet)", true)
+		}
+	default:
+		ui.displayMessage(fmt.Sprintf("Unknown command: %s", cmd), true)
+	}
 }
 
 // Stop stops the UI
