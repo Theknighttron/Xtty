@@ -30,7 +30,7 @@ func main() {
 	})
 
 	// Set up routes
-	// http.HandleFunc("/ws", xttyServer.HandleWebSocket)
+	http.HandleFunc("/ws", xttyServer.HandleWebSocket)
 	http.HandleFunc("/register", xttyServer.HandleRegistration)
 	http.HandleFunc("/status", xttyServer.HandleStatusCheck)
 
