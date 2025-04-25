@@ -3,125 +3,63 @@ package client
 import (
 	"flag"
 	"fmt"
-	"log"
-	"os"
-	"path/filepath"
+	"time"
 )
 
-// RunClient runs the client
+// RunClient handles the complete client lifecycle
 func RunClient() error {
 	// Define command line flags
-	serverHost := flag.String("host", "localhost", "Server host")
-	serverPort := flag.Int("port", 8080, "Server port")
-	username := flag.String("username", "", "Username")
-	configPath := flag.String("config", GetDefaultConfigPath(), "Path to config file")
-	createConfig := flag.Bool("create-config", false, "Create a new config file")
-	roomCode := flag.String("room", "", "Room code to join (optional)")
-
-	// Parse flags
+	joinCode := flag.String("join", "", "Room code to join")
+	username := flag.String("username", "", "Your username")
 	flag.Parse()
 
-	// Check if we need to create a new config
-	if *createConfig {
-		if *username == "" {
-			return fmt.Errorf("username is required when creating a new config")
-		}
-		// Create new config
-		config, err := CreateNewConfig(*username, *serverHost, *serverPort)
-		if err != nil {
-			return fmt.Errorf("failed to create new config: %v", err)
-		}
-		// Save config
-		if err := SaveConfig(config, *configPath); err != nil {
-			return fmt.Errorf("failed to save config: %v", err)
-		}
-		fmt.Printf("Created new config file at %s\n", *configPath)
-		return nil
+	// Validate username
+	if *username == "" {
+		return fmt.Errorf("username is required (use -username YOURNAME)")
 	}
 
-	// Load config if it exists
-	var config *Config
-	var err error
+	// Initialize client
+	c := NewUser(*username)
+	defer c.Cleanup()
 
-	if _, err := os.Stat(*configPath); err == nil {
-		config, err = LoadConfig(*configPath)
-		if err != nil {
-			return fmt.Errorf("failed to load config: %v", err)
-		}
-
-		// Override config with command line flags if provided
-		if *serverHost != "localhost" {
-			config.ServerHost = *serverHost
-		}
-		if *serverPort != 8080 {
-			config.ServerPort = *serverPort
-		}
-		if *username != "" {
-			config.Username = *username
-		}
+	var roomCode string
+	if *joinCode == "" {
+		// Create new room
+		roomCode = GenerateRoomCode()
+		fmt.Printf("Your room code: %s\n", roomCode)
+		fmt.Println("Share this with your peer to connect")
 	} else {
-		// Use defaults if no config file
-		config = &Config{
-			ServerHost: *serverHost,
-			ServerPort: *serverPort,
-			Username:   *username,
-		}
-
-		if config.Username == "" {
-			return fmt.Errorf("username is required (use --username flag or create a config file)")
-		}
+		// Join existing room
+		roomCode = *joinCode
+		fmt.Printf("Joining room: %s\n", roomCode)
 	}
 
-	// Set up log file
-	logDir := filepath.Dir(*configPath)
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		return fmt.Errorf("failed to create log directory: %v", err)
+	// Generate encryption keys
+	if err := c.GenerateKeyPair(); err != nil {
+		return fmt.Errorf("failed to generate keys: %v", err)
 	}
-
-	logFile, err := os.OpenFile(filepath.Join(logDir, "xtty-client.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %v", err)
-	}
-	defer logFile.Close()
-	log.SetOutput(logFile)
-
-	// Create user
-	user := NewUser()
-
-	// Generate key pair
-	if err := user.GenerateKeyPair(); err != nil {
-		return fmt.Errorf("failed to generate key pair: %v", err)
-	}
-
-	// Determine room code
-	useRoomCode := *roomCode
-	if useRoomCode == "" {
-		useRoomCode = GenerateRoomCode()
-	}
-
-	// Construct server URL
-	serverURL := fmt.Sprintf("ws://%s:%d", config.ServerHost, config.ServerPort)
 
 	// Connect to server
-	if err := user.Connect(serverURL, useRoomCode); err != nil {
-		return fmt.Errorf("failed to connect to server: %v", err)
+	serverURL := "ws://localhost:8080"
+	if err := c.Connect(serverURL, roomCode); err != nil {
+		return fmt.Errorf("connection failed: %v", err)
 	}
 
-	// Exchange keys
-	if err := user.SendKeyExchange(); err != nil {
-		return fmt.Errorf("failed to exchange keys: %v", err)
+	// If joining existing room, wait for key exchange
+	if *joinCode != "" {
+		select {
+		case <-c.KeyExchangeDone:
+			// Key exchange completed
+		case <-time.After(10 * time.Second):
+			return fmt.Errorf("timed out waiting for peer")
+		}
 	}
 
-	// Create UI
-	ui := NewUI(user)
-
-	// Run UI
+	// Initialize and run UI
+	ui := NewUI(c)
 	if err := ui.Run(); err != nil {
-		return fmt.Errorf("UI error: %v", err)
+		return fmt.Errorf("ui error: %v", err)
 	}
-
-	// Clean up
-	user.Cleanup()
 
 	return nil
 }

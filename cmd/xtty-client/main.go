@@ -1,40 +1,52 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/Theknighttron/Xtty/internal/client"
 )
 
 func main() {
-	// Create a new user
-	user := client.NewUser()
+	join := flag.String("join", "", "Room code to join")
+	username := flag.String("username", "", "Your username")
+	flag.Parse()
 
-	// Generate room code and keys
-	roomCode := client.GenerateRoomCode()
-	if err := user.GenerateKeyPair(); err != nil {
+	if *username == "" {
+		fmt.Println("Error: username is required")
+		fmt.Println("Usage: go run main.go -username YOURNAME [-join ROOM_CODE]")
+		os.Exit(1)
+	}
+
+	u := client.NewUser(*username)
+
+	var roomCode string
+	if *join == "" {
+		roomCode = client.GenerateRoomCode()
+		fmt.Printf("Your room code: %s\n", roomCode)
+		fmt.Println("Share this with your peer to connect")
+	} else {
+		roomCode = *join
+		fmt.Printf("Joining room: %s\n", roomCode)
+	}
+
+	if err := u.GenerateKeyPair(); err != nil {
 		log.Fatalf("Failed to generate keys: %v", err)
 	}
 
-	fmt.Printf("Your room code: %s\n", roomCode)
-	fmt.Println("Share this with your peer to connect")
-
-	// Connect to server
-	serverURL := "ws://localhost:8080"
-	if err := user.Connect(serverURL, roomCode); err != nil {
+	if err := u.Connect("ws://localhost:8080", roomCode); err != nil {
 		log.Fatalf("Connection failed: %v", err)
 	}
+	defer u.Cleanup()
 
-	// Send public key
-	if err := user.SendKeyExchange(); err != nil {
-		log.Fatalf("Key exchange failed: %v", err)
+	// Wait for key exchange if joining existing room
+	if *join != "" {
+		<-u.KeyExchangeDone
 	}
 
-	defer user.Cleanup()
-
-	// Start UI
-	ui := client.NewUI(user)
+	ui := client.NewUI(u)
 	if err := ui.Run(); err != nil {
 		log.Printf("UI error: %v", err)
 	}

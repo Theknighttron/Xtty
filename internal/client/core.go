@@ -18,18 +18,21 @@ const (
 )
 
 type User struct {
-	Conn       *websocket.Conn
-	RoomCode   string
-	KeyPair    *rsa.PrivateKey
-	PeerPubKey *rsa.PublicKey
-	Messages   []Message
-	Done       chan struct{}
+	Conn            *websocket.Conn
+	RoomCode        string
+	KeyPair         *rsa.PrivateKey
+	PeerPubKey      *rsa.PublicKey
+	Messages        []Message
+	Done            chan struct{}
+	KeyExchangeDone chan struct{}
+	Username        string
 }
 
 type Message struct {
 	Content   string    `json:"content"`
 	Timestamp time.Time `json:"timestamp"`
-	Sent      bool      `json:"sent"` // True if sent by this client
+	Sent      bool      `json:"sent"`
+	Sender    string    `json:"sender"`
 }
 
 func GenerateRoomCode() string {
@@ -41,10 +44,17 @@ func GenerateRoomCode() string {
 	return string(b)
 }
 
-func NewUser() *User {
+func NewUser(username string) *User {
 	return &User{
-		Done: make(chan struct{}),
+		Done:            make(chan struct{}),
+		KeyExchangeDone: make(chan struct{}),
+		Username:        username,
 	}
+}
+
+func (c *User) JoinRoom(serverURL, roomCode string) error {
+	c.RoomCode = roomCode
+	return c.Connect(serverURL, roomCode)
 }
 
 func (c *User) GenerateKeyPair() error {
