@@ -40,6 +40,17 @@ func NewUI(user *User) *UI {
 func (ui *UI) Run() error {
 	ui.updateStatus()
 
+	// Wait for initial connection
+	if ui.user.PeerPubKey == nil && ui.user.RoomCode != "" {
+		ui.displaySystemMessage("Establishing secure connection...")
+		select {
+		case <-ui.user.KeyExchangeDone:
+			ui.displaySystemMessage("Secure connection established!")
+		case <-time.After(10 * time.Second):
+			ui.displaySystemMessage("Warning: Connection not fully secured")
+		}
+	}
+
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(ui.statusView, 1, 1, false).
@@ -78,10 +89,24 @@ func (ui *UI) handleCommand(cmd string) {
 			ui.displaySystemMessage("Usage: /join ROOM_CODE")
 			return
 		}
+		ui.displaySystemMessage(fmt.Sprintf("Joining room: %s", parts[1]))
 		if err := ui.user.JoinRoom("ws://localhost:8080", parts[1]); err != nil {
 			ui.displaySystemMessage(fmt.Sprintf("Join failed: %v", err))
 		} else {
-			ui.displaySystemMessage(fmt.Sprintf("Joined room: %s", parts[1]))
+			// Wait for key exchange after joining
+			go func() {
+				select {
+				case <-ui.user.KeyExchangeDone:
+					ui.app.QueueUpdateDraw(func() {
+						ui.displaySystemMessage("Successfully joined room")
+						ui.updateStatus()
+					})
+				case <-time.After(10 * time.Second):
+					ui.app.QueueUpdateDraw(func() {
+						ui.displaySystemMessage("Warning: Secure connection not established")
+					})
+				}
+			}()
 		}
 	case "/help":
 		ui.displaySystemMessage("Commands:\n/join ROOM_CODE - Join a room\n/help - Show this help")

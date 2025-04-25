@@ -81,6 +81,12 @@ func (c *User) Connect(serverURL, roomCode string) error {
 func (c *User) readPump() {
 	defer close(c.Done)
 
+	// Send our public key immediately after connecting
+	if err := c.SendKeyExchange(); err != nil {
+		log.Printf("Failed to send key exchange: %v, err")
+		return
+	}
+
 	for {
 		_, msg, err := c.Conn.ReadMessage()
 		if err != nil {
@@ -98,7 +104,12 @@ func (c *User) readPump() {
 		switch data["type"] {
 		case "key_exchange":
 			c.handleKeyExchange(data)
+			close(c.KeyExchangeDone)
 		case "message":
+			if c.PeerPubKey == nil {
+				log.Println("Received message before key exchange")
+				continue
+			}
 			c.handleEncryptedMessage(data)
 		}
 	}
@@ -137,11 +148,23 @@ func (c *User) handleKeyExchange(data map[string]interface{}) {
 
 	c.PeerPubKey = &pubKey
 	log.Println("Peer public key received and verified")
+
+	// Send confirmation message
+	confirmation := map[string]interface{}{
+		"type": "key_confirm",
+		"from": c.Username,
+	}
+	c.Conn.WriteJSON(confirmation)
 }
 
 func (c *User) SendMessage(content string) error {
 	if c.PeerPubKey == nil {
-		return fmt.Errorf("no peer public key available")
+		select {
+		case <-c.KeyExchangeDone:
+			// Keys exchanged, continue
+		case <-time.After(5 * time.Second):
+			return fmt.Errorf("timeout waiting for key exchange")
+		}
 	}
 
 	encrypted, err := rsa.EncryptPKCS1v15(
