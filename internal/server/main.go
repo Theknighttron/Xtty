@@ -45,7 +45,7 @@ func NewServer(config common.ServerConfig) *Server {
 	}
 }
 
-func HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	roomCode := r.URL.Query().Get("room") // retrieve roomcode from url query string
 	if roomCode == "" {
 		http.Error(w, "Room code required", http.StatusBadRequest)
