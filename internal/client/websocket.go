@@ -38,7 +38,7 @@ func NewClient(config *Config, messageHandler func(message *common.Message)) (*C
 	return client, nil
 }
 
-// Connects to the WebSocket server
+// connects to the WebSocket server
 func (c *Client) Connect() error {
 	// Create WebSocket URL
 	u := url.URL{
