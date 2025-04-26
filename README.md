@@ -18,7 +18,6 @@ Xtty is an end-to-end encrypted terminal chat application with:
 
 ### Installation
 
-```bash
 `git clone https://github.com/yourusername/xtty.git`
 `cd xtty`
 
@@ -33,21 +32,21 @@ User B join the chat room
 
 Start chatting
 
-
-### Diagrams Explanation
+### **Diagrams Explanation**
 
 **Sequence Diagram**: Shows the secure message flow between users via the server
 ![Xtty Architecture](./assets/architecture.png)
 
- **Component Table**: Breaks down the technical building blocks
+**Component Table**: Breaks down the technical building blocks
 
 ## Key Components
+
     1. Room Code - 6-digit temporary session identifier
     2. RSA-2048 - Key exchange & message encryption
     3. WebSocket - Persistent connection channel
     4. TUI - Terminal User Interface
 
- **Directory Tree**: Visualizes the code organization
+## **Directory Tree**: Visualizes the code organization
 
 ```
 
@@ -63,16 +62,16 @@ xtty/
 
 ```
 
-
-
 ### Key Sections:
 
 1. **For Users**:
+
    - Simple copy-paste commands
    - Clear visual flow
    - No technical jargon
 
 2. **For Developers**:
+
    - Architecture overview
    - Precise file locations
    - Suggested improvements
@@ -84,8 +83,8 @@ xtty/
    - Clear directory structure
 
 This README provides:
+
 - Immediate usability for beginners
 - Technical depth for contributors
 - Clear visual explanations
 - Maintainable structure
-```
